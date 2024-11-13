@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Text Recognition and Translation from Images</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script> <!-- PDF.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.0.0/dist/tesseract.min.js"></script> <!-- Tesseract.js library -->
+</head>
+<style>
+    /* Reset styles */
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+    }
+
+    /* Main container */
+    .container {
+        max-width: 600px;
+        margin: 50px auto;
+        padding: 20px;
+        background-color: #fffdd9;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        text-align: center;
+    }
+
+    /* Header */
+    h1 {
+        font-size: 1.8em;
+        color: #333;
+        margin-bottom: 20px;
+    }
+
+    /* Upload section */
+    .upload-section {
+        margin: 20px 0;
+    }
+
+    input[type="file"] {
+        padding: 10px;
+        font-size: 0.9em;
+    }
+
+    button {
+        padding: 10px 20px;
+        background-color: #4CAF50;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+        background-color: #45a049;
+    }
+
+    /* Output box */
+    .output-box {
+        margin-top: 20px;
+        padding: 20px;
+        background-color: #e8f0fe;
+        border-radius: 5px;
+        min-height: 100px;
+        font-size: 1em;
+        color: #333;
+        text-align: left;
+        white-space: pre-line;
+    }
+</style>
+<body>
+   
+    <div class="container">
+        <h1>Automated Text Recognition and Translation from Images</h1>
+        <div class="upload-section">
+            <input type="file" id="fileInput" accept="image/*,application/pdf">
+            <button onclick="handleFileUpload()">Translate File</button>
+        </div>
+        <div id="output" class="output-box">Your translated text will appear here...</div>
+    </div>
+
+<script>
+    // Function to read the PDF and extract text using PDF.js
+    async function extractTextFromPDF(pdfUrl) {
+        const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
+        const numPages = pdf.numPages;
+        let textContent = '';
+
+        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const content = await page.getTextContent();
+            const pageText = content.items.map(item => item.str).join(' ');
+            textContent += pageText + '\n'; // Add text of each page
+        }
+        return textContent;
+    }
+
+    // Function to perform OCR on an image
+    async function performOCR(image) {
+        try {
+            const result = await Tesseract.recognize(image, 'spa+hin', {
+                logger: (m) => console.log(m)
+            });
+            const extractedText = result.data.text;
+            console.log("Extracted Text:", extractedText);
+            return extractedText;
+        } catch (error) {
+            console.error("Error performing OCR:", error);
+            return null;
+        }
+    }
+
+    // Detect language using an API
+    async function detectLanguage(text) {
+        try {
+            const response = await axios.get('https://api.mymemory.translated.net/get', {
+                params: { q: text, langpair: "en|es" }
+            });
+            let detectedLang = response.data.responseData.detectedLanguage;
+            if (!['hi', 'es'].includes(detectedLang)) {
+                detectedLang = 'hi'; // Default to Hindi if not Spanish or Hindi
+            }
+            console.log("Detected Language:", detectedLang);
+            return detectedLang;
+        } catch (error) {
+            console.error("Error detecting language:", error);
+            return "hi";  // Default to Hindi if detection fails
+        }
+    }
+
+    // Translate the extracted text
+    async function translateText(text, detectedLang, targetLang) {
+        try {
+            const sourceLang = detectedLang || "hi";
+            const response = await axios.get('https://api.mymemory.translated.net/get', {
+                params: { q: text, langpair: ${sourceLang}|${targetLang} }
+            });
+            const translatedText = response.data.responseData.translatedText;
+            console.log("Translated Text:", translatedText);
+            return translatedText;
+        } catch (error) {
+            console.error("Error translating text:", error);
+            return null;
+        }
+    }
+
+    // Main function to handle file upload, detect type, extract text, and translate
+    async function handleFileUpload() {
+        const fileInput = document.getElementById("fileInput");
+        const targetLang = 'en';  // Target language (English)
+
+        if (fileInput.files.length === 0) {
+            alert("Please select a file.");
+            return;
+        }
+
+        const file = fileInput.files[0];
+        const fileUrl = URL.createObjectURL(file);
+
+        let extractedText = '';
+        if (file.type === 'application/pdf') {
+            extractedText = await extractTextFromPDF(fileUrl);
+        } else if (file.type.startsWith('image')) {
+            extractedText = await performOCR(fileUrl);
+        }
+
+        if (extractedText) {
+            const detectedLang = await detectLanguage(extractedText);
+
+            if (['hi', 'es'].includes(detectedLang) && detectedLang !== targetLang) {
+                const translatedText = await translateText(extractedText, detectedLang, targetLang);
+                if (translatedText) {
+                    document.getElementById("output").innerText = Original Text:\n${extractedText}\n\nTranslated Text:\n${translatedText};
+                    speakText(translatedText, targetLang);
+                } else {
+                    document.getElementById("output").innerText = "Translation failed.";
+                }
+            } else {
+                document.getElementById("output").innerText = No translation needed. Original Text:\n${extractedText};
+            }
+        } else {
+            document.getElementById("output").innerText = "Failed to extract text.";
+        }
+    }
+
+    // Function to read the text out loud using the SpeechSynthesis API
+    function speakText(text, targetLang) {
+        const speech = new SpeechSynthesisUtterance(text);
+
+        if (targetLang === 'es') {
+            speech.lang = 'es-ES'; // Spanish
+        } else if (targetLang === 'hi') {
+            speech.lang = 'hi-IN'; // Hindi
+        } else {
+            speech.lang = 'en-US'; // English
+        }
+
+        if (window.speechSynthesis) {
+            window.speechSynthesis.speak(speech);
+        } else {
+            console.error("SpeechSynthesis API is not supported in this browser.");
+        }
+    }
+</script>
+</body>
+</html>
